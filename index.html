@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Task Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Daily Task Manager</h1>
+
+    <form id="task-form">
+      <div class="form-row">
+        <input type="text" id="task-input" placeholder="新しいタスクを入力..." required>
+        <select id="priority-select">
+          <option value="low">低</option>
+          <option value="medium" selected>中</option>
+          <option value="high">高</option>
+        </select>
+        <input type="date" id="due-date">
+        <button type="submit">追加</button>
+      </div>
+    </form>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" data-filter="all">全て</button>
+      <button class="filter-btn" data-filter="active">未完了</button>
+      <button class="filter-btn" data-filter="completed">完了済み</button>
+      <span id="task-count"></span>
+    </div>
+
+    <ul id="task-list"></ul>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
