@@ -3,36 +3,231 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Daily Task Manager</title>
+  <title>TrendSim Japan - 1億人流行シミュレーター</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <h1>Daily Task Manager</h1>
-
-    <form id="task-form">
-      <div class="form-row">
-        <input type="text" id="task-input" placeholder="新しいタスクを入力..." required>
-        <select id="priority-select">
-          <option value="low">低</option>
-          <option value="medium" selected>中</option>
-          <option value="high">高</option>
-        </select>
-        <input type="date" id="due-date">
-        <button type="submit">追加</button>
-      </div>
-    </form>
-
-    <div class="filter-bar">
-      <button class="filter-btn active" data-filter="all">全て</button>
-      <button class="filter-btn" data-filter="active">未完了</button>
-      <button class="filter-btn" data-filter="completed">完了済み</button>
-      <span id="task-count"></span>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="header-left">
+      <h1 class="logo">TrendSim<span class="logo-sub">Japan</span></h1>
+      <span class="tagline">1億人の日本人ペルソナで流行を可視化</span>
     </div>
+    <div class="header-right">
+      <div class="population-badge" id="pop-badge">
+        <span class="pop-number" id="pop-count">---</span>
+        <span class="pop-label">人のペルソナ</span>
+      </div>
+      <div class="cohort-badge" id="cohort-badge">
+        <span class="cohort-number" id="cohort-count">---</span>
+        <span class="cohort-label">コホート</span>
+      </div>
+    </div>
+  </header>
 
-    <ul id="task-list"></ul>
+  <!-- メインコンテンツ -->
+  <div class="main-layout">
+    <!-- 左サイドバー: コントロールパネル -->
+    <aside class="sidebar">
+      <!-- 流行プリセット -->
+      <div class="panel">
+        <h3 class="panel-title">流行プリセット</h3>
+        <div class="preset-list" id="preset-list"></div>
+      </div>
+
+      <!-- パラメータ調整 -->
+      <div class="panel">
+        <h3 class="panel-title">パラメータ調整</h3>
+        <div class="param-group">
+          <label>メディア影響力
+            <span class="param-value" id="val-media">0.50</span>
+          </label>
+          <input type="range" id="param-media" min="0" max="100" value="50" class="slider">
+        </div>
+        <div class="param-group">
+          <label>SNS拡散力
+            <span class="param-value" id="val-sns">0.50</span>
+          </label>
+          <input type="range" id="param-sns" min="0" max="100" value="50" class="slider">
+        </div>
+        <div class="param-group">
+          <label>口コミ伝播力
+            <span class="param-value" id="val-wom">0.50</span>
+          </label>
+          <input type="range" id="param-wom" min="0" max="100" value="50" class="slider">
+        </div>
+        <div class="param-group">
+          <label>地理的拡散速度
+            <span class="param-value" id="val-geo">0.50</span>
+          </label>
+          <input type="range" id="param-geo" min="0" max="100" value="50" class="slider">
+        </div>
+        <div class="param-group">
+          <label>飽き率 (離脱速度)
+            <span class="param-value" id="val-decay">0.08</span>
+          </label>
+          <input type="range" id="param-decay" min="1" max="30" value="8" class="slider">
+        </div>
+        <div class="param-group">
+          <label>初期認知人数
+            <span class="param-value" id="val-seed">1,000</span>
+          </label>
+          <input type="range" id="param-seed" min="100" max="100000" value="1000" step="100" class="slider">
+        </div>
+        <div class="param-group">
+          <label>発生地点</label>
+          <select id="param-startpref" class="select-pref"></select>
+        </div>
+        <div class="param-group">
+          <label>シミュレーション日数
+            <span class="param-value" id="val-days">180</span>
+          </label>
+          <input type="range" id="param-days" min="30" max="365" value="180" class="slider">
+        </div>
+      </div>
+
+      <!-- 実行コントロール -->
+      <div class="panel">
+        <h3 class="panel-title">シミュレーション実行</h3>
+        <div class="speed-control">
+          <label>速度:</label>
+          <select id="sim-speed">
+            <option value="1">1x (1日/フレーム)</option>
+            <option value="3" selected>3x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+          </select>
+        </div>
+        <div class="control-buttons">
+          <button id="btn-generate" class="btn btn-primary">ペルソナ生成</button>
+          <button id="btn-start" class="btn btn-success" disabled>開始</button>
+          <button id="btn-pause" class="btn btn-warning" disabled>一時停止</button>
+          <button id="btn-reset" class="btn btn-secondary" disabled>リセット</button>
+        </div>
+        <div class="sim-status">
+          <span id="sim-day">Day 0</span>
+          <span id="sim-state" class="status-badge status-idle">待機中</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- メインエリア -->
+    <main class="content">
+      <!-- タブナビゲーション -->
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">人口概要</button>
+        <button class="tab" data-tab="simulation">シミュレーション</button>
+        <button class="tab" data-tab="personas">サンプルペルソナ</button>
+      </div>
+
+      <!-- 人口概要タブ -->
+      <div class="tab-content active" id="tab-overview">
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-total">---</div>
+            <div class="stat-label">総人口</div>
+          </div>
+          <div class="stat-card stat-aware">
+            <div class="stat-value" id="stat-aware">0</div>
+            <div class="stat-label">認知</div>
+          </div>
+          <div class="stat-card stat-interested">
+            <div class="stat-value" id="stat-interested">0</div>
+            <div class="stat-label">関心</div>
+          </div>
+          <div class="stat-card stat-adopted">
+            <div class="stat-value" id="stat-adopted">0</div>
+            <div class="stat-label">採用</div>
+          </div>
+          <div class="stat-card stat-retired">
+            <div class="stat-value" id="stat-retired">0</div>
+            <div class="stat-label">離脱</div>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="chart-panel wide">
+            <h4>日本全国 流行浸透マップ</h4>
+            <div class="chart-container map-container">
+              <canvas id="japan-map"></canvas>
+            </div>
+          </div>
+          <div class="chart-panel">
+            <h4>年齢別人口分布</h4>
+            <div class="chart-container">
+              <canvas id="chart-age-pop"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- シミュレーションタブ -->
+      <div class="tab-content" id="tab-simulation">
+        <div class="chart-row">
+          <div class="chart-panel wide">
+            <h4>人口状態推移 (スタック)</h4>
+            <div class="chart-container tall">
+              <canvas id="chart-timeseries"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="chart-row">
+          <div class="chart-panel">
+            <h4>認知・関心・採用 推移</h4>
+            <div class="chart-container">
+              <canvas id="chart-trendlines"></canvas>
+            </div>
+          </div>
+          <div class="chart-panel">
+            <h4>年齢別 採用率</h4>
+            <div class="chart-container">
+              <canvas id="chart-age-adoption"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="chart-row">
+          <div class="chart-panel">
+            <h4>地方別 採用状況</h4>
+            <div class="chart-container">
+              <canvas id="chart-region"></canvas>
+            </div>
+          </div>
+          <div class="chart-panel">
+            <h4>都道府県別 浸透率ランキング</h4>
+            <div class="ranking-list" id="ranking-list">
+              <p class="placeholder">シミュレーション実行後に表示されます</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- サンプルペルソナタブ -->
+      <div class="tab-content" id="tab-personas">
+        <div class="panel">
+          <div class="persona-header">
+            <h4>サンプルペルソナ</h4>
+            <p class="persona-desc">1億人の中からランダムに抽出したペルソナ例です。統計分布に基づいて生成されています。</p>
+            <button id="btn-resample" class="btn btn-secondary" disabled>再抽出</button>
+          </div>
+          <div class="persona-grid" id="persona-grid">
+            <p class="placeholder">ペルソナを生成してください</p>
+          </div>
+        </div>
+      </div>
+    </main>
   </div>
 
+  <!-- フッター -->
+  <footer class="footer">
+    <span>TrendSim Japan - コホートベース流行シミュレーター | 846コホートで1億人を統計的に表現</span>
+  </footer>
+
+  <!-- スクリプト読み込み -->
+  <script src="js/demographics.js"></script>
+  <script src="js/persona-engine.js"></script>
+  <script src="js/simulation.js"></script>
+  <script src="js/japan-map.js"></script>
+  <script src="js/charts.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
