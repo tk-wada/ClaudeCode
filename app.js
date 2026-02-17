@@ -45,6 +45,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initParamListeners();
   initTabs();
 
+  // ページ読み込み時にペルソナを自動生成
+  setTimeout(() => generatePersonas(), 100);
+
   // === プリセットの初期化 ===
   function initPresets() {
     const presets = Demographics.trendPresets;

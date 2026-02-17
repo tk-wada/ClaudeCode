@@ -30,6 +30,7 @@ const Charts = (() => {
     const container = canvas.parentElement;
     const w = container.clientWidth;
     const h = container.clientHeight || 250;
+    if (w <= 0) return; // 非表示タブではスキップ
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + 'px';
@@ -166,6 +167,7 @@ const Charts = (() => {
     const container = canvas.parentElement;
     const w = container.clientWidth;
     const h = container.clientHeight || 220;
+    if (w <= 0) return;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + 'px';
@@ -268,6 +270,7 @@ const Charts = (() => {
     const container = canvas.parentElement;
     const w = container.clientWidth;
     const h = container.clientHeight || 220;
+    if (w <= 0) return;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + 'px';
@@ -363,6 +366,7 @@ const Charts = (() => {
     const container = canvas.parentElement;
     const w = container.clientWidth;
     const h = container.clientHeight || 200;
+    if (w <= 0) return;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + 'px';

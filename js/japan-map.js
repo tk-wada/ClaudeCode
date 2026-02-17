@@ -84,10 +84,12 @@ const JapanMap = (() => {
   }
 
   function resize() {
+    if (!canvas) return;
     const container = canvas.parentElement;
     const dpr = window.devicePixelRatio || 1;
-    width = container.clientWidth;
+    width = container.clientWidth || 600;
     height = container.clientHeight || 500;
+    if (width <= 0) return;
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     canvas.style.width = width + 'px';
@@ -100,9 +102,12 @@ const JapanMap = (() => {
    * ヘックス座標をピクセル座標に変換
    */
   function hexToPixel(col, row) {
-    const size = Math.min(HEX_SIZE, (width - PADDING * 2) / 14, (height - PADDING * 2) / 18);
+    // グリッド範囲: col=-2~9 (12列), row=0~13 (14行) + オフセット分
+    const colRange = 12; // 9 - (-2) + 1
+    const rowRange = 15; // 14行 + offset分
+    const size = Math.min(HEX_SIZE, (width - PADDING * 2) / (colRange * 1.8), (height - PADDING * 2) / (rowRange * 1.6));
     const offsetX = width / 2 - 3 * size * 1.8;
-    const offsetY = PADDING + size;
+    const offsetY = PADDING + size * 0.5;
     const x = offsetX + col * size * 1.8;
     const y = offsetY + row * size * 1.6 + (col % 2 === 0 ? 0 : size * 0.8);
     return { x, y, size };
@@ -178,9 +183,18 @@ const JapanMap = (() => {
   }
 
   function getLuminance(color) {
-    const m = color.match(/\d+/g);
-    if (!m) return 0.5;
-    const [r, g, b] = m.map(Number);
+    let r, g, b;
+    if (color.startsWith('#')) {
+      // hex色をパース
+      const hex = color.slice(1);
+      r = parseInt(hex.substring(0, 2), 16);
+      g = parseInt(hex.substring(2, 4), 16);
+      b = parseInt(hex.substring(4, 6), 16);
+    } else {
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return 0.5;
+      [r, g, b] = m.map(Number);
+    }
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   }
 
