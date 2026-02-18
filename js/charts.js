@@ -2,7 +2,7 @@
  * チャート描画モジュール
  * Canvas 2Dを使った自前チャート描画
  */
-const Charts = (() => {
+var Charts = (() => {
   const COLORS = {
     S: '#94a3b8', // 未認知 - グレー
     A: '#60a5fa', // 認知 - 青

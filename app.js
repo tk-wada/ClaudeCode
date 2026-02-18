@@ -3,6 +3,19 @@
  * 全モジュールの統合と UI 制御
  */
 document.addEventListener('DOMContentLoaded', () => {
+  // モジュール読み込みチェック
+  const modules = { Demographics, PersonaEngine, SimulationEngine, JapanMap, Charts };
+  for (const [name, mod] of Object.entries(modules)) {
+    if (typeof mod === 'undefined') {
+      document.body.innerHTML = `<div style="color:red;padding:2rem;font-size:1.2rem">
+        エラー: ${name} モジュールが読み込まれていません。<br>
+        ブラウザのコンソール (F12) を確認してください。<br>
+        index.html と js/ フォルダが同じディレクトリにあることを確認してください。
+      </div>`;
+      return;
+    }
+  }
+
   // === DOM要素の取得 ===
   const $ = (id) => document.getElementById(id);
 

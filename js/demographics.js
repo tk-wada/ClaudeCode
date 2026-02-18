@@ -2,7 +2,7 @@
  * 日本の人口統計データモジュール
  * 国勢調査ベースの統計データを使用して1億人のペルソナコホートを構成
  */
-const Demographics = (() => {
+var Demographics = (() => {
   // 47都道府県データ: [名前, 人口(千人), 緯度的位置, 経度的位置, 地方区分, 隣接都道府県インデックス]
   const prefectures = [
     { id: 0,  name: '北海道',   pop: 5224,  region: '北海道', lat: 43.06, lng: 141.35, neighbors: [1] },

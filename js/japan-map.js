@@ -2,7 +2,7 @@
  * 日本地図ビジュアライゼーション
  * Canvas上にヘックスグリッド風の都道府県マップを描画
  */
-const JapanMap = (() => {
+var JapanMap = (() => {
   let canvas, ctx;
   let width, height;
   let tooltip = null;

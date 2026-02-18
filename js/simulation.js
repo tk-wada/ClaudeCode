@@ -2,7 +2,7 @@
  * 流行シミュレーションエンジン
  * SAIDRモデル: Susceptible → Aware → Interested → aDopter → Retired
  */
-const SimulationEngine = (() => {
+var SimulationEngine = (() => {
   let running = false;
   let paused = false;
   let step = 0;

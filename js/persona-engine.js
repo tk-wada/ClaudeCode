@@ -2,7 +2,7 @@
  * ペルソナ生成エンジン
  * 1億人の日本人ペルソナをコホート（集団）として統計的に生成・管理
  */
-const PersonaEngine = (() => {
+var PersonaEngine = (() => {
   let cohorts = [];
   let generated = false;
   const TARGET_POPULATION = 100_000_000; // 1億人
