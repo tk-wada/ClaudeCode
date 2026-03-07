@@ -1,377 +1,451 @@
 /**
- * TrendSim Japan - メインアプリケーション
- * 全モジュールの統合と UI 制御
+ * EmotionLens - 感情分析ウィジェット
+ * カメラ / 動画アップロードから表情を解析してリアルタイムで感情を表示
  */
+
+// ===== 定数 =====
+const API_URL = '/analyze';
+
+const EMOTION_CONFIG = {
+  happy:     { label: '喜び',   emoji: '😊', color: '#facc15' },
+  sad:       { label: '悲しみ', emoji: '😢', color: '#60a5fa' },
+  angry:     { label: '怒り',   emoji: '😠', color: '#f87171' },
+  surprised: { label: '驚き',   emoji: '😲', color: '#fb923c' },
+  fearful:   { label: '恐怖',   emoji: '😨', color: '#a78bfa' },
+  disgusted: { label: '嫌悪',   emoji: '🤢', color: '#4ade80' },
+  neutral:   { label: '中立',   emoji: '😐', color: '#94a3b8' },
+};
+
+const EMOTION_NAMES_JA = {
+  happy: '喜び', sad: '悲しみ', angry: '怒り',
+  surprised: '驚き', fearful: '恐怖', disgusted: '嫌悪', neutral: '中立',
+};
+
+// ===== 状態管理 =====
+let currentMode = 'camera';
+let cameraStream = null;
+let analysisInterval = null;
+let intervalMs = 2000;
+let analysisCount = 0;
+let isAnalyzing = false;
+
+// 履歴データ（グラフ用）
+const MAX_HISTORY = 20;
+const emotionHistory = {
+  labels: [],
+  datasets: Object.keys(EMOTION_CONFIG).map(key => ({
+    key,
+    color: EMOTION_CONFIG[key].color,
+    data: [],
+  })),
+};
+
+// ===== 初期化 =====
 document.addEventListener('DOMContentLoaded', () => {
-  // === DOM要素の取得 ===
-  const $ = (id) => document.getElementById(id);
+  initChart();
+  setupDragAndDrop();
+});
 
-  const popCount = $('pop-count');
-  const cohortCount = $('cohort-count');
-  const btnGenerate = $('btn-generate');
-  const btnStart = $('btn-start');
-  const btnPause = $('btn-pause');
-  const btnReset = $('btn-reset');
-  const btnResample = $('btn-resample');
-  const simDay = $('sim-day');
-  const simState = $('sim-state');
-  const presetList = $('preset-list');
-  const personaGrid = $('persona-grid');
-  const rankingList = $('ranking-list');
+// ===== モード切替 =====
+function setMode(mode) {
+  currentMode = mode;
 
-  // パラメータ入力
-  const paramMedia = $('param-media');
-  const paramSns = $('param-sns');
-  const paramWom = $('param-wom');
-  const paramGeo = $('param-geo');
-  const paramDecay = $('param-decay');
-  const paramSeed = $('param-seed');
-  const paramStartPref = $('param-startpref');
-  const paramDays = $('param-days');
-  const simSpeed = $('sim-speed');
+  document.getElementById('btn-camera').classList.toggle('active', mode === 'camera');
+  document.getElementById('btn-upload').classList.toggle('active', mode === 'upload');
+  document.getElementById('camera-section').style.display = mode === 'camera' ? '' : 'none';
+  document.getElementById('upload-section').style.display = mode === 'upload' ? '' : 'none';
 
-  // 統計表示
-  const statTotal = $('stat-total');
-  const statAware = $('stat-aware');
-  const statInterested = $('stat-interested');
-  const statAdopted = $('stat-adopted');
-  const statRetired = $('stat-retired');
-
-  let selectedPreset = -1;
-
-  // === 初期化 ===
-  initPresets();
-  initPrefectureSelect();
-  initParamListeners();
-  initTabs();
-
-  // ページ読み込み時にペルソナを自動生成
-  setTimeout(() => generatePersonas(), 100);
-
-  // === プリセットの初期化 ===
-  function initPresets() {
-    const presets = Demographics.trendPresets;
-    presetList.innerHTML = '';
-
-    presets.forEach((preset, i) => {
-      const div = document.createElement('div');
-      div.className = 'preset-item';
-      div.innerHTML = `
-        <div class="preset-name">${preset.name}</div>
-        <div class="preset-desc">${preset.description}</div>
-      `;
-      div.addEventListener('click', () => selectPreset(i));
-      presetList.appendChild(div);
-    });
+  if (mode === 'camera') {
+    stopCamera();
+  } else {
+    stopCamera();
   }
+}
 
-  function selectPreset(index) {
-    selectedPreset = index;
-    const preset = Demographics.trendPresets[index];
-
-    // プリセット表示を更新
-    document.querySelectorAll('.preset-item').forEach((el, i) => {
-      el.classList.toggle('active', i === index);
+// ===== カメラ制御 =====
+async function startCamera() {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false,
     });
 
-    // パラメータを反映
-    const p = preset.params;
-    paramMedia.value = Math.round(p.mediaInfluence * 100);
-    paramSns.value = Math.round(p.snsSpread * 100);
-    paramWom.value = Math.round(p.wordOfMouth * 100);
-    paramGeo.value = Math.round(p.geographicSpread * 100);
-    paramDecay.value = Math.round(p.decayRate * 100);
-    paramStartPref.value = p.startPrefecture;
+    const video = document.getElementById('camera-video');
+    video.srcObject = cameraStream;
 
-    updateParamDisplay();
+    document.getElementById('camera-overlay').classList.add('hidden');
+    document.getElementById('start-camera-btn').style.display = 'none';
+    document.getElementById('stop-camera-btn').style.display = '';
+
+    setStatus('active', 'カメラ起動中');
+
+    // 自動解析開始
+    startCameraAnalysis();
+  } catch (err) {
+    alert(`カメラの起動に失敗しました: ${err.message}\nブラウザの設定でカメラアクセスを許可してください。`);
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  if (analysisInterval) {
+    clearInterval(analysisInterval);
+    analysisInterval = null;
   }
 
-  // === 都道府県セレクト初期化 ===
-  function initPrefectureSelect() {
-    paramStartPref.innerHTML = '';
-    Demographics.prefectures.forEach(pref => {
-      const opt = document.createElement('option');
-      opt.value = pref.id;
-      opt.textContent = pref.name;
-      paramStartPref.appendChild(opt);
-    });
-    paramStartPref.value = 12; // デフォルト: 東京
+  const video = document.getElementById('camera-video');
+  video.srcObject = null;
+  document.getElementById('camera-overlay').classList.remove('hidden');
+  document.getElementById('start-camera-btn').style.display = '';
+  document.getElementById('stop-camera-btn').style.display = 'none';
+
+  setStatus('', '待機中');
+}
+
+function startCameraAnalysis() {
+  if (analysisInterval) clearInterval(analysisInterval);
+  analysisInterval = setInterval(analyzeFromCamera, intervalMs);
+  analyzeFromCamera(); // 即時実行
+}
+
+function updateInterval() {
+  intervalMs = parseInt(document.getElementById('interval-select').value);
+  if (cameraStream && analysisInterval) {
+    startCameraAnalysis();
+  }
+}
+
+async function analyzeFromCamera() {
+  if (isAnalyzing || !cameraStream) return;
+
+  const video = document.getElementById('camera-video');
+  if (video.readyState < 2) return;
+
+  const canvas = document.getElementById('camera-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const base64 = canvas.toDataURL('image/jpeg', 0.85);
+  await sendForAnalysis(base64);
+}
+
+// ===== 動画アップロード =====
+function handleVideoUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const url = URL.createObjectURL(file);
+  const video = document.getElementById('upload-video');
+  video.src = url;
+
+  document.getElementById('upload-area').style.display = 'none';
+  document.getElementById('upload-video-wrapper').style.display = '';
+  document.getElementById('upload-controls').style.display = '';
+}
+
+function resetUpload() {
+  document.getElementById('upload-area').style.display = '';
+  document.getElementById('upload-video-wrapper').style.display = 'none';
+  document.getElementById('upload-controls').style.display = 'none';
+  document.getElementById('video-progress-wrapper').style.display = 'none';
+  document.getElementById('video-input').value = '';
+  setStatus('', '待機中');
+}
+
+async function analyzeVideo() {
+  const video = document.getElementById('upload-video');
+  if (!video.src) return;
+
+  const canvas = document.getElementById('upload-canvas');
+  const ctx = canvas.getContext('2d');
+  const duration = video.duration;
+
+  // 動画の長さに応じてサンプリング数を決定（最大15フレーム）
+  const sampleCount = Math.min(15, Math.max(3, Math.floor(duration / 2)));
+  const timestamps = [];
+  for (let i = 0; i < sampleCount; i++) {
+    timestamps.push((duration * i) / (sampleCount - 1 || 1));
   }
 
-  // === パラメータリスナー ===
-  function initParamListeners() {
-    const sliders = [
-      { el: paramMedia, valEl: $('val-media'), format: v => (v / 100).toFixed(2) },
-      { el: paramSns, valEl: $('val-sns'), format: v => (v / 100).toFixed(2) },
-      { el: paramWom, valEl: $('val-wom'), format: v => (v / 100).toFixed(2) },
-      { el: paramGeo, valEl: $('val-geo'), format: v => (v / 100).toFixed(2) },
-      { el: paramDecay, valEl: $('val-decay'), format: v => (v / 100).toFixed(2) },
-      { el: paramSeed, valEl: $('val-seed'), format: v => Number(v).toLocaleString() },
-      { el: paramDays, valEl: $('val-days'), format: v => v },
-    ];
+  document.getElementById('analyze-video-btn').disabled = true;
+  document.getElementById('video-progress-wrapper').style.display = '';
+  setStatus('analyzing', '動画解析中');
 
-    sliders.forEach(({ el, valEl, format }) => {
-      el.addEventListener('input', () => {
-        valEl.textContent = format(el.value);
-      });
-    });
-  }
+  // 時系列リセット
+  resetHistory();
 
-  function updateParamDisplay() {
-    $('val-media').textContent = (paramMedia.value / 100).toFixed(2);
-    $('val-sns').textContent = (paramSns.value / 100).toFixed(2);
-    $('val-wom').textContent = (paramWom.value / 100).toFixed(2);
-    $('val-geo').textContent = (paramGeo.value / 100).toFixed(2);
-    $('val-decay').textContent = (paramDecay.value / 100).toFixed(2);
-    $('val-seed').textContent = Number(paramSeed.value).toLocaleString();
-    $('val-days').textContent = paramDays.value;
-  }
+  for (let i = 0; i < timestamps.length; i++) {
+    const pct = Math.round(((i + 1) / timestamps.length) * 100);
+    document.getElementById('progress-fill').style.width = `${pct}%`;
+    document.getElementById('progress-text').textContent = `${pct}%`;
 
-  // === タブ制御 ===
-  function initTabs() {
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        tab.classList.add('active');
-        $('tab-' + tab.dataset.tab).classList.add('active');
+    // フレームをシーク
+    await seekVideo(video, timestamps[i]);
 
-        // タブ切り替え時にチャートを再描画
-        setTimeout(refreshCharts, 50);
-      });
-    });
-  }
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
 
-  // === ボタンイベント ===
-  btnGenerate.addEventListener('click', generatePersonas);
-  btnStart.addEventListener('click', startSimulation);
-  btnPause.addEventListener('click', pauseSimulation);
-  btnReset.addEventListener('click', resetSimulation);
-  btnResample.addEventListener('click', showSamplePersonas);
+    const base64 = canvas.toDataURL('image/jpeg', 0.85);
+    await sendForAnalysis(base64, `${formatTime(timestamps[i])}`);
 
-  // === ペルソナ生成 ===
-  function generatePersonas() {
-    btnGenerate.textContent = '生成中...';
-    btnGenerate.disabled = true;
-
-    // 少し遅延を入れてUI更新を反映
-    setTimeout(() => {
-      const stats = PersonaEngine.generate();
-
-      // UI更新
-      popCount.textContent = formatPop(stats.totalPopulation);
-      cohortCount.textContent = stats.totalCohorts.toLocaleString();
-      statTotal.textContent = formatPop(stats.totalPopulation);
-
-      // 日本地図初期化
-      JapanMap.init('japan-map', (prefId) => {
-        // 都道府県クリック時の処理
-      });
-
-      // 年齢別人口チャート
-      Charts.drawAgeDistribution('chart-age-pop', stats.byAge, 'population');
-
-      // ボタン状態更新
-      btnGenerate.textContent = '再生成';
-      btnGenerate.disabled = false;
-      btnStart.disabled = false;
-      btnReset.disabled = false;
-      btnResample.disabled = false;
-
-      // サンプルペルソナ表示
-      showSamplePersonas();
-
-      updateStatsDisplay(stats);
-    }, 50);
-  }
-
-  // === シミュレーション開始 ===
-  function startSimulation() {
-    if (SimulationEngine.isPaused()) {
-      // 一時停止からの再開
-      const speed = parseInt(simSpeed.value);
-      SimulationEngine.run(onSimStep, speed);
-      setSimState('running', '実行中');
-      btnStart.disabled = true;
-      btnPause.disabled = false;
-      return;
-    }
-
-    // パラメータ取得
-    const preset = selectedPreset >= 0 ? Demographics.trendPresets[selectedPreset] : null;
-    const customParams = {
-      mediaInfluence: paramMedia.value / 100,
-      snsSpread: paramSns.value / 100,
-      wordOfMouth: paramWom.value / 100,
-      geographicSpread: paramGeo.value / 100,
-      decayRate: paramDecay.value / 100,
-      initialSeed: parseInt(paramSeed.value),
-      startPrefecture: parseInt(paramStartPref.value),
-      maxSteps: parseInt(paramDays.value),
-      ageAffinity: preset ? preset.params.ageAffinity : [0.3, 0.8, 0.9, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1],
-    };
-
-    SimulationEngine.init(customParams);
-
-    const speed = parseInt(simSpeed.value);
-    SimulationEngine.run(onSimStep, speed);
-
-    setSimState('running', '実行中');
-    btnStart.disabled = true;
-    btnPause.disabled = false;
-    btnGenerate.disabled = true;
-
-    // シミュレーションタブに自動切り替え
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.querySelector('[data-tab="simulation"]').classList.add('active');
-    $('tab-simulation').classList.add('active');
-  }
-
-  // === シミュレーションステップコールバック ===
-  function onSimStep(step, isFinished) {
-    simDay.textContent = `Day ${step}`;
-
-    // 統計更新
-    const stats = PersonaEngine.getStats();
-    updateStatsDisplay(stats);
-
-    // チャート更新（毎フレーム）
-    refreshCharts();
-
-    if (isFinished) {
-      setSimState('done', '完了');
-      btnStart.disabled = false;
-      btnPause.disabled = true;
-      btnGenerate.disabled = false;
+    // APIレート制限を考慮して待機
+    if (i < timestamps.length - 1) {
+      await sleep(500);
     }
   }
 
-  // === 一時停止 ===
-  function pauseSimulation() {
-    SimulationEngine.pause();
-    setSimState('paused', '一時停止');
-    btnStart.disabled = false;
-    btnPause.disabled = true;
-  }
+  document.getElementById('analyze-video-btn').disabled = false;
+  document.getElementById('video-progress-wrapper').style.display = 'none';
+  setStatus('active', '解析完了');
+  setTimeout(() => setStatus('', '待機中'), 3000);
+}
 
-  // === リセット ===
-  function resetSimulation() {
-    SimulationEngine.stop();
-    PersonaEngine.resetStates();
+function seekVideo(video, time) {
+  return new Promise(resolve => {
+    video.currentTime = time;
+    video.onseeked = () => resolve();
+  });
+}
 
-    simDay.textContent = 'Day 0';
-    setSimState('idle', '待機中');
+// ===== API呼び出し =====
+async function sendForAnalysis(base64, label = null) {
+  if (isAnalyzing) return;
+  isAnalyzing = true;
+  setStatus('analyzing', '解析中...');
 
-    btnStart.disabled = false;
-    btnPause.disabled = true;
-    btnGenerate.disabled = false;
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64, media_type: 'image/jpeg' }),
+    });
 
-    const stats = PersonaEngine.getStats();
-    updateStatsDisplay(stats);
-    refreshCharts();
-  }
-
-  // === 統計表示更新 ===
-  function updateStatsDisplay(stats) {
-    statTotal.textContent = formatPop(stats.totalPopulation);
-    statAware.textContent = formatPop(stats.states.A);
-    statInterested.textContent = formatPop(stats.states.I);
-    statAdopted.textContent = formatPop(stats.states.D);
-    statRetired.textContent = formatPop(stats.states.R);
-  }
-
-  // === チャート更新 ===
-  function refreshCharts() {
-    if (!PersonaEngine.isGenerated()) return;
-
-    const stats = PersonaEngine.getStats();
-    const history = SimulationEngine.getHistory();
-    const totalPop = stats.totalPopulation;
-
-    // 概要タブのチャート
-    JapanMap.draw();
-    Charts.drawAgeDistribution('chart-age-pop', stats.byAge, 'population');
-
-    // シミュレーションタブのチャート
-    if (history.length > 0) {
-      Charts.drawTimeSeries('chart-timeseries', history, totalPop);
-      Charts.drawTrendLines('chart-trendlines', history, totalPop);
-      Charts.drawAgeDistribution('chart-age-adoption', stats.byAge, 'adoption');
-      Charts.drawRegionDonut('chart-region', stats.byRegion);
-      updateRanking();
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${response.status}`);
     }
+
+    const result = await response.json();
+    analysisCount++;
+    displayResult(result, label);
+    setStatus('active', 'カメラ起動中');
+  } catch (err) {
+    console.error('解析エラー:', err);
+    document.getElementById('description-text').textContent = `解析エラー: ${err.message}`;
+    setStatus('', 'エラー');
+  } finally {
+    isAnalyzing = false;
+  }
+}
+
+// ===== 結果表示 =====
+function displayResult(result, label = null) {
+  if (!result.face_detected) {
+    document.getElementById('description-text').textContent = '顔が検出できませんでした。カメラに顔を向けてください。';
+    document.getElementById('dominant-name').textContent = '未検出';
+    document.getElementById('dominant-emoji').textContent = '🔍';
+    return;
   }
 
-  // === ランキング更新 ===
-  function updateRanking() {
-    const adoption = PersonaEngine.getPrefectureAdoption();
-    const prefectures = Demographics.prefectures;
+  const { emotions, dominant_emotion, description, confidence } = result;
 
-    const ranked = adoption
-      .map((a, i) => ({ ...a, name: prefectures[i].name }))
-      .sort((a, b) => b.totalEngaged - a.totalEngaged);
+  // 主要感情
+  const cfg = EMOTION_CONFIG[dominant_emotion] || EMOTION_CONFIG.neutral;
+  document.getElementById('dominant-emoji').textContent = cfg.emoji;
+  document.getElementById('dominant-name').textContent = EMOTION_NAMES_JA[dominant_emotion] || dominant_emotion;
+  document.getElementById('dominant-confidence').textContent =
+    `確信度: ${Math.round((confidence || 0) * 100)}%`;
 
-    const maxRate = ranked[0] ? ranked[0].totalEngaged : 1;
+  const card = document.getElementById('dominant-card');
+  card.setAttribute('data-emotion', dominant_emotion);
 
-    rankingList.innerHTML = '';
-    ranked.forEach((item, i) => {
-      const div = document.createElement('div');
-      div.className = 'ranking-item';
+  // 感情バー更新
+  Object.entries(emotions).forEach(([key, val]) => {
+    const pct = Math.round(val * 100);
+    const bar = document.getElementById(`bar-${key}`);
+    const valEl = document.getElementById(`val-${key}`);
+    if (bar) bar.style.width = `${pct}%`;
+    if (valEl) valEl.textContent = `${pct}%`;
+  });
 
-      const barWidth = maxRate > 0 ? (item.totalEngaged / maxRate * 100) : 0;
-      const hue = 220 - (item.totalEngaged * 180); // 青→赤
+  // 説明テキスト
+  document.getElementById('description-text').textContent = description || '解析完了';
 
-      div.innerHTML = `
-        <span class="ranking-rank">${i + 1}</span>
-        <span class="ranking-name">${item.name}</span>
-        <div class="ranking-bar-bg">
-          <div class="ranking-bar" style="width:${barWidth}%; background: hsl(${Math.max(0, hue)}, 80%, 55%)"></div>
-        </div>
-        <span class="ranking-value">${(item.totalEngaged * 100).toFixed(1)}%</span>
-      `;
-      rankingList.appendChild(div);
+  // メタ情報
+  const metaEl = document.getElementById('analysis-meta');
+  metaEl.style.display = 'flex';
+  document.getElementById('meta-time').textContent = label
+    ? `時刻: ${label}` : `${new Date().toLocaleTimeString()}`;
+  document.getElementById('meta-count').textContent = `解析回数: ${analysisCount}`;
+  document.getElementById('analysis-count').textContent = `解析回数: ${analysisCount}`;
+
+  // 履歴グラフ更新
+  updateHistory(emotions, label || new Date().toLocaleTimeString('ja', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+}
+
+// ===== ステータス =====
+function setStatus(type, text) {
+  const badge = document.getElementById('status-badge');
+  badge.className = `status-badge ${type}`;
+  document.getElementById('status-text').textContent = text;
+}
+
+// ===== 時系列グラフ =====
+let chartCtx = null;
+let chartData = null;
+
+function initChart() {
+  const canvas = document.getElementById('history-chart');
+  chartCtx = canvas.getContext('2d');
+
+  // シンプルなラインチャートを手動描画
+  chartData = {
+    labels: [],
+    series: Object.fromEntries(
+      Object.keys(EMOTION_CONFIG).map(k => [k, []])
+    ),
+  };
+
+  renderChart();
+  buildLegend();
+}
+
+function resetHistory() {
+  chartData.labels = [];
+  Object.keys(EMOTION_CONFIG).forEach(k => { chartData.series[k] = []; });
+  renderChart();
+}
+
+function updateHistory(emotions, label) {
+  chartData.labels.push(label);
+  Object.entries(emotions).forEach(([key, val]) => {
+    if (chartData.series[key] !== undefined) {
+      chartData.series[key].push(val);
+    }
+  });
+
+  // 最大件数超過時は古いデータを削除
+  if (chartData.labels.length > MAX_HISTORY) {
+    chartData.labels.shift();
+    Object.keys(chartData.series).forEach(k => chartData.series[k].shift());
+  }
+
+  renderChart();
+}
+
+function renderChart() {
+  const canvas = document.getElementById('history-chart');
+  const w = canvas.offsetWidth;
+  const h = 120;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = chartCtx;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const n = chartData.labels.length;
+  if (n < 2) {
+    ctx.fillStyle = '#ffffff18';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('解析データが蓄積されるとグラフが表示されます', w / 2, h / 2);
+    return;
+  }
+
+  // グリッド線
+  ctx.strokeStyle = '#ffffff10';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = (h * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  const padL = 4, padR = 4, padT = 8, padB = 4;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+
+  // 感情ごとに折れ線を描画
+  Object.entries(EMOTION_CONFIG).forEach(([key, cfg]) => {
+    const vals = chartData.series[key];
+    if (!vals || vals.length < 2) return;
+
+    ctx.beginPath();
+    ctx.strokeStyle = cfg.color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+
+    vals.forEach((v, i) => {
+      const x = padL + (i / (n - 1)) * plotW;
+      const y = padT + (1 - v) * plotH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
-  }
 
-  // === サンプルペルソナ表示 ===
-  function showSamplePersonas() {
-    const personas = PersonaEngine.samplePersonas(20);
-    personaGrid.innerHTML = '';
+    ctx.stroke();
+  });
+}
 
-    personas.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'persona-card';
-      card.innerHTML = `
-        <div class="persona-name">${escapeHtml(p.name)}</div>
-        <div class="persona-detail">
-          <span>${p.age}歳</span>
-          <span>${escapeHtml(p.gender)}</span>
-          <span>${escapeHtml(p.prefecture)}</span>
-          <span>${escapeHtml(p.occupation)}</span>
-          <span>SNS: ${p.snsUsage}</span>
-        </div>
-      `;
-      personaGrid.appendChild(card);
-    });
-  }
+function buildLegend() {
+  const el = document.getElementById('chart-legend');
+  el.innerHTML = Object.entries(EMOTION_CONFIG).map(([key, cfg]) =>
+    `<div class="legend-item">
+      <div class="legend-dot" style="background:${cfg.color}"></div>
+      ${cfg.emoji} ${cfg.label}
+    </div>`
+  ).join('');
+}
 
-  // === ユーティリティ ===
-  function setSimState(stateClass, label) {
-    simState.className = `status-badge status-${stateClass}`;
-    simState.textContent = label;
-  }
+// ===== ドラッグ&ドロップ =====
+function setupDragAndDrop() {
+  const area = document.getElementById('upload-area');
+  if (!area) return;
 
-  function formatPop(n) {
-    if (n >= 100000000) return (n / 100000000).toFixed(2) + '億';
-    if (n >= 10000000) return (n / 10000).toFixed(0) + '万';
-    if (n >= 10000) return (n / 10000).toFixed(1) + '万';
-    return n.toLocaleString();
-  }
+  area.addEventListener('dragover', e => {
+    e.preventDefault();
+    area.style.borderColor = 'var(--accent)';
+    area.style.background = '#a855f710';
+  });
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
+  area.addEventListener('dragleave', () => {
+    area.style.borderColor = '';
+    area.style.background = '';
+  });
+
+  area.addEventListener('drop', e => {
+    e.preventDefault();
+    area.style.borderColor = '';
+    area.style.background = '';
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('video/')) {
+      const input = document.getElementById('video-input');
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      handleVideoUpload({ target: input });
+    }
+  });
+}
+
+// ===== ユーティリティ =====
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function formatTime(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = Math.floor(sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+// ウィンドウリサイズ時にグラフを再描画
+window.addEventListener('resize', () => {
+  if (chartData) renderChart();
 });
